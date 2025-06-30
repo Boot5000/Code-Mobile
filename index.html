@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobile Code Linter & Gemini Chat</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        /* Basic styling for the modal overlay */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .modal-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90%;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            transform: scale(0.95);
+            transition: transform 0.3s ease;
+        }
+        .modal-overlay.show .modal-content {
+            transform: scale(1);
+        }
+        .modal-body {
+            flex-grow: 1;
+            overflow-y: auto;
+            margin-bottom: 15px;
+        }
+        .modal-body textarea {
+            width: 100%;
+            height: 200px; /* Initial height */
+            min-height: 150px; /* Minimum height */
+            resize: vertical; /* Allow vertical resizing */
+        }
+        .modal-preview-iframe {
+            width: 100%;
+            height: 400px; /* Fixed height for preview iframe */
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background-color: #f7fafc;
+        }
+        .sms-message {
+            background-color: #e0f2f7; /* Light blue for messages */
+            padding: 10px 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .sms-message .sender {
+            font-weight: bold;
+            color: #2c5282; /* Darker blue */
+            margin-bottom: 5px;
+        }
+        .sms-message .timestamp {
+            font-size: 0.75rem;
+            color: #718096; /* Gray */
+            text-align: right;
+            margin-top: 5px;
+        }
+
+        /* Toggle Switch Styling */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 24px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            -webkit-transition: .4s;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            -webkit-transition: .4s;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #4f46e5; /* indigo-600 */
+        }
+        input:focus + .slider {
+            box-shadow: 0 0 1px #4f46e5;
+        }
+        input:checked + .slider:before {
+            -webkit-transform: translateX(16px);
+            -ms-transform: translateX(16px);
+            transform: translateX(16px);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen flex items-center justify-center font-sans text-gray-800 p-4">
+
+    <div class="bg-white rounded-3xl shadow-xl p-6 w-full max-w-md md:max-w-lg lg:max-w-xl flex flex-col space-y-6 border border-blue-200">
+        <!-- App Header -->
+        <div class="flex items-center justify-between pb-4 border-b border-blue-100">
+            <h1 class="text-3xl font-extrabold text-indigo-600">Code Buddy 🚀</h1>
+            <button id="openEditorBtn" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-xl shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 inline-block mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Edit Code
+            </button>
+        </div>
+
+        <!-- Code Linter Section -->
+        <div class="space-y-4">
+            <h2 class="text-2xl font-semibold text-gray-700">Code Linter</h2>
+            <textarea id="codeEditor" class="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition duration-200 ease-in-out text-sm font-mono bg-gray-50" rows="8" placeholder="Paste your HTML, CSS, or JavaScript code here...&#10;&#10;Example:&#10;function greet() {&#10;  console.log('Hello, world!');&#10;}&#10;greet();"></textarea>
+            <button id="lintCodeBtn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-xl shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 inline-block mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Lint Code
+            </button>
+            <div id="lintResults" class="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800 hidden">
+                <!-- Linting results will appear here -->
+            </div>
+        </div>
+
+        <!-- Gemini Chat Section -->
+        <div class="space-y-4 pt-6 border-t border-blue-100">
+            <h2 class="text-2xl font-semibold text-gray-700">Gemini Chat</h2>
+            <!-- Auto-Send Code Switch -->
+            <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-700">Auto-send code to Linter:</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="autoSendCodeToggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div id="chatHistory" class="h-64 overflow-y-auto p-4 border border-gray-300 rounded-lg bg-gray-50 text-sm flex flex-col space-y-3">
+                <!-- Chat messages will appear here -->
+                <div class="flex items-start">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold mr-2">AI</div>
+                    <div class="bg-blue-100 p-3 rounded-xl rounded-tl-none shadow-sm max-w-[80%]">
+                        Hello! How can I assist you with your code today?
+                    </div>
+                </div>
+            </div>
+            <div class="flex space-x-2">
+                <input type="text" id="chatInput" class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition duration-200 ease-in-out text-sm" placeholder="Ask Gemini about your code...">
+                <button id="sendChatBtn" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 px-4 rounded-xl shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- SMS Inbox Button -->
+        <div class="pt-4 border-t border-blue-100">
+            <button id="openSmsInboxBtn" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 inline-block mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                SMS Inbox
+            </button>
+        </div>
+    </div>
+
+    <!-- Code Editor & Preview Modal -->
+    <div id="app-preview-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="flex justify-between items-center pb-4 border-b border-gray-200 mb-4">
+                <h3 class="text-2xl font-bold text-gray-700">Code Editor & Preview</h3>
+                <button id="closeModalBtn" class="text-gray-500 hover:text-gray-700 transition duration-200 ease-in-out">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <textarea id="modalCodeEditor" class="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition duration-200 ease-in-out text-sm font-mono bg-gray-50" rows="12" placeholder="Edit your code here..."></textarea>
+                <div class="flex justify-end space-x-2 mt-4">
+                    <button id="updateMainCodeBtn" class="bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-4 rounded-xl shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline-block mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004 16.087V12m6.201 4.307l3.602 3.602M9.695 21H21v-5.214m0 0A8.001 8.001 0 004 3.913V8" />
+                        </svg>
+                        Update Main Code
+                    </button>
+                    <button id="previewCodeBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-xl shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline-block mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        Preview Code
+                    </button>
+                </div>
+                <h4 class="text-lg font-semibold text-gray-700 mt-6 mb-2">Live Preview:</h4>
+                <iframe id="codePreviewIframe" class="modal-preview-iframe"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <!-- SMS Inbox Modal -->
+    <div id="sms-inbox-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="flex justify-between items-center pb-4 border-b border-gray-200 mb-4">
+                <h3 class="text-2xl font-bold text-gray-700">SMS Inbox</h3>
+                <button id="closeSmsInboxModalBtn" class="text-gray-500 hover:text-gray-700 transition duration-200 ease-in-out">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div id="smsMessagesContainer" class="modal-body space-y-3">
+                <!-- SMS messages will be loaded here -->
+            </div>
+            <div class="mt-4 text-sm text-gray-600">
+                <p>Note: This is a simulated SMS inbox for demonstration purposes.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Wrap the entire script in an IIFE to create a new scope and prevent global variable redeclaration errors.
+        (function() {
+            // DOM Elements
+            const codeEditor = document.getElementById('codeEditor');
+            const lintCodeBtn = document.getElementById('lintCodeBtn');
+            const lintResults = document.getElementById('lintResults');
+            const chatHistory = document.getElementById('chatHistory');
+            const chatInput = document.getElementById('chatInput');
+            const sendChatBtn = document.getElementById('sendChatBtn');
+            const openEditorBtn = document.getElementById('openEditorBtn');
+            const appPreviewModal = document.getElementById('app-preview-modal');
+            const closeModalBtn = document.getElementById('closeModalBtn');
+            const modalCodeEditor = document.getElementById('modalCodeEditor');
+            const previewCodeBtn = document.getElementById('previewCodeBtn');
+            const codePreviewIframe = document.getElementById('codePreviewIframe');
+            const updateMainCodeBtn = document.getElementById('updateMainCodeBtn');
+
+            // New SMS Inbox DOM Elements
+            const openSmsInboxBtn = document.getElementById('openSmsInboxBtn');
+            const smsInboxModal = document.getElementById('sms-inbox-modal');
+            const closeSmsInboxModalBtn = document.getElementById('closeSmsInboxModalBtn');
+            const smsMessagesContainer = document.getElementById('smsMessagesContainer');
+
+            // New Auto-Send Code Toggle
+            const autoSendCodeToggle = document.getElementById('autoSendCodeToggle');
+            let isAutoSendEnabled = false; // Default state
+
+            // Event listener for the toggle switch
+            autoSendCodeToggle.addEventListener('change', (event) => {
+                isAutoSendEnabled = event.target.checked;
+                console.log('Auto-send code enabled:', isAutoSendEnabled);
+            });
+
+
+            // --- Linter Logic ---
+            function lintCode() {
+                const code = codeEditor.value;
+                let errors = [];
+
+                // Simple linting rules (can be expanded)
+                // 1. Check for unmatched curly braces
+                let openBraces = (code.match(/{/g) || []).length;
+                let closeBraces = (code.match(/}/g) || []).length;
+                if (openBraces !== closeBraces) {
+                    errors.push("Mismatch in curly braces: " + openBraces + " opened, " + closeBraces + " closed.");
+                }
+
+                // 2. Check for missing semicolons at end of lines (basic check)
+                const lines = code.split('\n');
+                lines.forEach((line, index) => {
+                    const trimmedLine = line.trim();
+                    // Ignore empty lines, comments, and lines ending with a brace or known control flow
+                    if (trimmedLine.length > 0 &&
+                        !trimmedLine.startsWith('//') &&
+                        !trimmedLine.startsWith('/*') &&
+                        !trimmedLine.endsWith('{') &&
+                        !trimmedLine.endsWith('}') &&
+                        !trimmedLine.endsWith(';') &&
+                        !trimmedLine.endsWith(')') && // For function calls without semicolon
+                        !trimmedLine.match(/^(if|for|while|function|class|import|export)\b/)
+                    ) {
+                        // This is a very basic check and will have false positives/negatives.
+                        // A proper linter uses AST.
+                        errors.push(`Potentially missing semicolon on line ${index + 1}: "${trimmedLine}"`);
+                    }
+                });
+
+                // 3. Check for basic HTML structure (if it looks like HTML)
+                if (code.includes('<!DOCTYPE html>') || code.includes('<html') || code.includes('<body')) {
+                    if (!code.includes('<head>')) errors.push("HTML: Missing <head> tag.");
+                    if (!code.includes('<body>')) errors.push("HTML: Missing <body> tag.");
+                    if (!code.includes('</html')) errors.push("HTML: Missing </html> tag.");
+                }
+
+                // Display results
+                if (errors.length > 0) {
+                    lintResults.innerHTML = `
+                        <p class="font-bold mb-2">Linting Issues Found:</p>
+                        <ul class="list-disc list-inside space-y-1">
+                            ${errors.map(err => `<li>${err}</li>`).join('')}
+                        </ul>
+                    `;
+                    lintResults.classList.remove('hidden');
+                    lintResults.classList.remove('bg-green-50', 'border-green-200', 'text-green-800');
+                    lintResults.classList.add('bg-yellow-50', 'border-yellow-200', 'text-yellow-800');
+                } else {
+                    lintResults.innerHTML = `
+                        <p class="font-bold">No significant linting issues found!</p>
+                        <p class="text-xs mt-1">This is a basic linter. For comprehensive checks, use professional tools.</p>
+                    `;
+                    lintResults.classList.remove('hidden');
+                    lintResults.classList.remove('bg-yellow-50', 'border-yellow-200', 'text-yellow-800');
+                    lintResults.classList.add('bg-green-50', 'border-green-200', 'text-green-800');
+                }
+            }
+
+            lintCodeBtn.addEventListener('click', lintCode);
+
+            // --- Gemini Chat Logic ---
+            let chatHistory = []; // Stores chat messages for context
+
+            async function sendMessageToGemini() {
+                const userMessage = chatInput.value.trim();
+                if (!userMessage) return;
+
+                // Add user message to chat history
+                appendMessage('user', userMessage);
+                chatInput.value = ''; // Clear input
+
+                // Add user message to internal chat history for API context
+                chatHistory.push({ role: "user", parts: [{ text: userMessage }] });
+
+                // Show a loading indicator
+                const loadingMessage = appendMessage('ai', 'Thinking...', true);
+
+                try {
+                    const payload = { contents: chatHistory };
+                    const apiKey = ""; // Canvas will provide this at runtime
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const result = await response.json();
+
+                    // Remove loading indicator
+                    loadingMessage.remove();
+
+                    if (result.candidates && result.candidates.length > 0 &&
+                        result.candidates[0].content && result.candidates[0].content.parts &&
+                        result.candidates[0].content.parts.length > 0) {
+                        const aiResponseText = result.candidates[0].content.parts[0].text;
+                        appendMessage('ai', aiResponseText);
+                        chatHistory.push({ role: "model", parts: [{ text: aiResponseText }] });
+
+                        // --- Auto-send code logic ---
+                        if (isAutoSendEnabled) {
+                            // Simple heuristic to detect code: look for markdown code blocks
+                            const codeMatch = aiResponseText.match(/```(html|css|javascript|js)?\n([\s\S]*?)\n```/);
+                            if (codeMatch && codeMatch[2]) {
+                                const extractedCode = codeMatch[2];
+                                codeEditor.value = extractedCode; // Send code to linter window
+                                lintCode(); // Automatically lint the new code
+                                appendMessage('ai', 'Code automatically sent to linter and linted!');
+                            } else if (aiResponseText.includes('<!DOCTYPE html>') || aiResponseText.includes('<html') || aiResponseText.includes('<body')) {
+                                // If it's a full HTML document, send it
+                                codeEditor.value = aiResponseText;
+                                lintCode();
+                                appendMessage('ai', 'HTML document automatically sent to linter and linted!');
+                            }
+                        }
+
+                    } else {
+                        appendMessage('ai', 'Error: Could not get a response from Gemini. Please try again.');
+                        console.error('Gemini API response structure unexpected:', result);
+                    }
+                } catch (error) {
+                    // Remove loading indicator
+                    loadingMessage.remove();
+                    appendMessage('ai', 'Error: Failed to connect to Gemini API. Check console for details.');
+                    console.error('Error fetching from Gemini API:', error);
+                } finally {
+                    // Scroll to the bottom of the chat history
+                    chatHistory.scrollTop = chatHistory.scrollHeight;
+                }
+            }
+
+            function appendMessage(sender, message, isLoading = false) {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('flex', 'items-start');
+
+                const avatarDiv = document.createElement('div');
+                avatarDiv.classList.add('flex-shrink-0', 'w-8', 'h-8', 'rounded-full', 'flex', 'items-center', 'justify-center', 'text-xs', 'font-bold', 'mr-2');
+
+                const textBubbleDiv = document.createElement('div');
+                textBubbleDiv.classList.add('p-3', 'rounded-xl', 'shadow-sm', 'max-w-[80%]');
+
+                if (sender === 'user') {
+                    avatarDiv.classList.add('bg-indigo-500', 'text-white');
+                    avatarDiv.textContent = 'You';
+                    textBubbleDiv.classList.add('bg-indigo-100', 'rounded-br-none');
+                } else {
+                    avatarDiv.classList.add('bg-blue-500', 'text-white');
+                    avatarDiv.textContent = 'AI';
+                    textBubbleDiv.classList.add('bg-blue-100', 'rounded-tl-none');
+                }
+
+                textBubbleDiv.textContent = message;
+                if (isLoading) {
+                    textBubbleDiv.innerHTML = `<span class="animate-pulse">...</span>`;
+                }
+
+                messageDiv.appendChild(avatarDiv);
+                messageDiv.appendChild(textBubbleDiv);
+                chatHistory.appendChild(messageDiv);
+
+                // Scroll to the bottom
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+                return messageDiv; // Return the message div for potential removal (e.g., loading indicator)
+            }
+
+            sendChatBtn.addEventListener('click', sendMessageToGemini);
+            chatInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    sendMessageToGemini();
+                }
+            });
+
+            // --- Code Editor & Preview Modal Logic ---
+            function openCodeEditorModal() {
+                modalCodeEditor.value = codeEditor.value; // Populate modal editor with main code
+                appPreviewModal.classList.add('show');
+                // Clear previous preview when opening the modal
+                codePreviewIframe.srcdoc = '';
+            }
+
+            function closeCodeEditorModal() {
+                appPreviewModal.classList.remove('show');
+            }
+
+            function previewCode() {
+                const codeToPreview = modalCodeEditor.value;
+                // Create a Blob from the code and set it as the iframe's src
+                // This is a safe way to preview arbitrary HTML/JS/CSS
+                const blob = new Blob([codeToPreview], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                codePreviewIframe.src = url;
+
+                // Revoke the object URL after the iframe has loaded the content
+                codePreviewIframe.onload = () => {
+                    URL.revokeObjectURL(url);
+                };
+            }
+
+            function updateMainCode() {
+                codeEditor.value = modalCodeEditor.value;
+                closeCodeEditorModal(); // Close modal after updating
+                lintCode(); // Re-lint the code after updating
+            }
+
+            openEditorBtn.addEventListener('click', openCodeEditorModal);
+            closeModalBtn.addEventListener('click', closeCodeEditorModal);
+            previewCodeBtn.addEventListener('click', previewCode);
+            updateMainCodeBtn.addEventListener('click', updateMainCode);
+
+            // --- SMS Inbox Modal Logic ---
+            const mockSmsMessages = [
+                { sender: "Bank Alerts", content: "Your account balance is $1,234.56. Transaction of $50 at Coffee Shop.", timestamp: "2025-06-30 14:30" },
+                { sender: "Verification Code", content: "Your verification code is: 789012. Do not share this with anyone.", timestamp: "2025-06-30 14:35" },
+                { sender: "App Notification", content: "New comment on your post: 'Great work!'", timestamp: "2025-06-30 15:00" },
+                { sender: "Google", content: "Your Google verification code is G-123456.", timestamp: "2025-06-30 15:15" },
+                { sender: "Delivery Service", content: "Your package is out for delivery and expected by 5 PM.", timestamp: "2025-06-30 16:00" },
+                { sender: "Reminder", content: "Don't forget your meeting at 10 AM tomorrow.", timestamp: "2025-06-29 09:00" },
+            ];
+
+            function openSmsInboxModal() {
+                smsMessagesContainer.innerHTML = ''; // Clear previous messages
+                mockSmsMessages.forEach(msg => {
+                    const msgDiv = document.createElement('div');
+                    msgDiv.classList.add('sms-message');
+                    msgDiv.innerHTML = `
+                        <div class="sender">${msg.sender}</div>
+                        <div class="content">${msg.content}</div>
+                        <div class="timestamp">${msg.timestamp}</div>
+                    `;
+                    smsMessagesContainer.appendChild(msgDiv);
+                });
+                smsInboxModal.classList.add('show');
+                smsMessagesContainer.scrollTop = smsMessagesContainer.scrollHeight; // Scroll to bottom
+            }
+
+            function closeSmsInboxModal() {
+                smsInboxModal.classList.remove('show');
+            }
+
+            openSmsInboxBtn.addEventListener('click', openSmsInboxModal);
+            closeSmsInboxModalBtn.addEventListener('click', closeSmsInboxModal);
+
+            // Initial lint on load for the placeholder code
+            window.onload = () => {
+                lintCode();
+            };
+        })(); // End of IIFE
+    </script>
+</body>
+</html>
